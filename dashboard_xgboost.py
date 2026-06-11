@@ -1,36 +1,91 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
 import os
 import matplotlib.pyplot as plt
+
+# Try to import joblib, if fail, use pickle as fallback
+try:
+    import joblib
+    print("Using joblib")
+except ImportError:
+    import pickle as joblib
+    print("Using pickle as fallback")
 
 st.set_page_config(page_title="XGBoost M&V Dashboard", layout="wide")
 st.title("🏠 AI-based Measurement & Verification (M&V) Dashboard")
 st.markdown("*Predict energy savings using **XGBoost** Regressor*")
-st.info("📌 **Model:** XGBoost | **Data:** Synthetic (same as Random Forest) | **Features:** Temperature, Humidity, Hour, Occupants, Floor Area, Retrofit")
+st.info("📌 **Model:** XGBoost | **Data:** Synthetic | **Features:** Temperature, Humidity, Hour, Occupants, Floor Area, Retrofit")
 
 # ==========================================
 # LOAD XGBOOST MODEL
 # ==========================================
 @st.cache_resource
 def load_model():
-    model_path = 'models/xgboost_model.pkl'
-    features_path = 'models/xgboost_features.txt'
+    # Try multiple possible paths
+    possible_paths = [
+        'models/xgboost_model.pkl',
+        'xgboost_model.pkl',
+        'model.pkl'
+    ]
     
-    if not os.path.exists(model_path):
-        st.error(f"❌ Model not found at {model_path}")
-        st.info("Please upload xgboost_model.pkl to the 'models' folder")
+    model = None
+    model_path_used = None
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                model = joblib.load(path)
+                model_path_used = path
+                break
+            except:
+                continue
+    
+    if model is None:
+        st.error("❌ XGBoost model not found!")
+        st.info("""
+        **Troubleshooting:**
+        1. Make sure 'xgboost_model.pkl' is in the 'models/' folder
+        2. Or upload the model file directly to the root folder
+        3. Check the file exists in GitHub repository
+        """)
+        
+        # List files for debugging
+        st.write("Files in current directory:")
+        for f in os.listdir('.'):
+            st.write(f"  - {f}")
+        
+        if os.path.exists('models'):
+            st.write("Files in models/ folder:")
+            for f in os.listdir('models'):
+                st.write(f"  - {f}")
+        
         return None, None
     
-    if not os.path.exists(features_path):
-        st.error(f"❌ Features file not found at {features_path}")
-        return None, None
+    # Load features
+    features_paths = [
+        'models/xgboost_features.txt',
+        'xgboost_features.txt',
+        'features.txt'
+    ]
     
-    model = joblib.load(model_path)
-    with open(features_path, 'r') as f:
-        features = [line.strip() for line in f.readlines()]
+    features = None
+    for path in features_paths:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                features = [line.strip() for line in f.readlines()]
+            break
     
+    if features is None:
+        # Default features
+        features = [
+            'temperature', 'humidity', 'hour', 'dayofweek', 'month',
+            'floor_area', 'occupants', 'retrofit',
+            'hour_sin', 'hour_cos', 'month_sin', 'month_cos',
+            'is_weekend', 'temp_humidity', 'occ_per_area'
+        ]
+    
+    st.success(f"✅ XGBoost model loaded from {model_path_used}")
     return model, features
 
 model, FEATURES = load_model()
@@ -38,21 +93,33 @@ model, FEATURES = load_model()
 if model is None:
     st.stop()
 
-st.sidebar.success("✅ XGBoost model loaded!")
-
 # ==========================================
-# LOAD METRICS
+# LOAD METRICS (if available)
 # ==========================================
 @st.cache_resource
 def load_metrics():
-    metrics_path = 'models/xgboost_metrics.json'
-    if os.path.exists(metrics_path):
-        import json
-        with open(metrics_path, 'r') as f:
-            return json.load(f)
+    metrics_paths = [
+        'models/xgboost_metrics.json',
+        'xgboost_metrics.json',
+        'metrics.json'
+    ]
+    
+    for path in metrics_paths:
+        if os.path.exists(path):
+            try:
+                import json
+                with open(path, 'r') as f:
+                    return json.load(f)
+            except:
+                continue
     return None
 
 metrics = load_metrics()
+
+if metrics:
+    st.sidebar.success("✅ XGBoost model ready!")
+else:
+    st.sidebar.info("📊 XGBoost model loaded (metrics file not found)")
 
 # ==========================================
 # SCALING FACTOR (Malaysia residential)
@@ -83,10 +150,13 @@ st.sidebar.subheader("📊 XGBoost Performance")
 
 if metrics:
     with st.sidebar.expander("Performance Metrics", expanded=True):
-        st.metric("R² Score", f"{metrics['r2_score']:.4f}")
-        st.metric("MAE", f"{metrics['mae']:.2f} kWh")
-        st.caption(f"RMSE: {metrics['rmse']:.2f} kWh")
-        st.progress(metrics['r2_score'], text=f"Accuracy: {metrics['r2_score']*100:.1f}%")
+        st.metric("R² Score", f"{metrics.get('r2_score', 0):.4f}")
+        st.metric("MAE", f"{metrics.get('mae', 0):.2f} kWh")
+        if 'rmse' in metrics:
+            st.caption(f"RMSE: {metrics['rmse']:.2f} kWh")
+else:
+    with st.sidebar.expander("Performance Metrics", expanded=True):
+        st.info("Metrics file not found")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Display Settings")
@@ -238,7 +308,6 @@ with col2:
     ⚡ **vs Random Forest:**
     - XGBoost = sequential learning
     - Usually higher accuracy
-    - Faster training
     
     💡 **Select 'Yes' to see savings!**
     """)
