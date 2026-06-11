@@ -1,0 +1,15 @@
+temperature
+humidity
+hour
+dayofweek
+month
+floor_area
+occupants
+retrofit
+hour_sin
+hour_cos
+month_sin
+month_cos
+is_weekend
+temp_humidity
+occ_per_area
